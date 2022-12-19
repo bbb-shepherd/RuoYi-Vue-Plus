@@ -1,15 +1,17 @@
 package com.ruoyi.system.service;
 
+import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.secure.BCrypt;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.ObjectUtil;
+import com.ruoyi.common.constant.CacheConstants;
 import com.ruoyi.common.constant.Constants;
+import com.ruoyi.common.core.domain.event.LogininforEvent;
 import com.ruoyi.common.core.domain.dto.RoleDTO;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.common.core.domain.model.XcxLoginUser;
-import com.ruoyi.common.core.service.LogininforService;
 import com.ruoyi.common.enums.DeviceType;
 import com.ruoyi.common.enums.LoginType;
 import com.ruoyi.common.enums.UserStatus;
@@ -22,8 +24,10 @@ import com.ruoyi.common.utils.MessageUtils;
 import com.ruoyi.common.utils.ServletUtils;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.redis.RedisUtils;
+import com.ruoyi.common.utils.spring.SpringUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpServletRequest;
@@ -43,8 +47,13 @@ public class SysLoginService {
 
     private final ISysUserService userService;
     private final ISysConfigService configService;
-    private final LogininforService asyncService;
     private final SysPermissionService permissionService;
+
+    @Value("${user.password.maxRetryCount}")
+    private Integer maxRetryCount;
+
+    @Value("${user.password.lockTime}")
+    private Integer lockTime;
 
     /**
      * 登录验证
@@ -57,9 +66,9 @@ public class SysLoginService {
      */
     public String login(String username, String password, String code, String uuid) {
         HttpServletRequest request = ServletUtils.getRequest();
-        boolean captchaOnOff = configService.selectCaptchaOnOff();
+        boolean captchaEnabled = configService.selectCaptchaEnabled();
         // 验证码开关
-        if (captchaOnOff) {
+        if (captchaEnabled) {
             validateCaptcha(username, code, uuid, request);
         }
         SysUser user = loadUserByUsername(username);
@@ -69,7 +78,7 @@ public class SysLoginService {
         // 生成token
         LoginHelper.loginByDevice(loginUser, DeviceType.PC);
 
-        asyncService.recordLogininfor(username, Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success"), request);
+        recordLogininfor(username, Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success"));
         recordLoginInfo(user.getUserId(), username);
         return StpUtil.getTokenValue();
     }
@@ -78,21 +87,19 @@ public class SysLoginService {
         // 通过手机号查找用户
         SysUser user = loadUserByPhonenumber(phonenumber);
 
-        HttpServletRequest request = ServletUtils.getRequest();
         checkLogin(LoginType.SMS, user.getUserName(), () -> !validateSmsCode(phonenumber, smsCode));
         // 此处可根据登录用户的数据不同 自行创建 loginUser
         LoginUser loginUser = buildLoginUser(user);
         // 生成token
         LoginHelper.loginByDevice(loginUser, DeviceType.APP);
 
-        asyncService.recordLogininfor(user.getUserName(), Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success"), request);
+        recordLogininfor(user.getUserName(), Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success"));
         recordLoginInfo(user.getUserId(), user.getUserName());
         return StpUtil.getTokenValue();
     }
 
 
     public String xcxLogin(String xcxCode) {
-        HttpServletRequest request = ServletUtils.getRequest();
         // xcxCode 为 小程序调用 wx.login 授权后获取
         // todo 以下自行实现
         // 校验 appid + appsrcret + xcxCode 调用登录凭证校验接口 获取 session_key 与 openid
@@ -108,22 +115,50 @@ public class SysLoginService {
         // 生成token
         LoginHelper.loginByDevice(loginUser, DeviceType.XCX);
 
-        asyncService.recordLogininfor(user.getUserName(), Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success"), request);
+        recordLogininfor(user.getUserName(), Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success"));
         recordLoginInfo(user.getUserId(), user.getUserName());
         return StpUtil.getTokenValue();
     }
 
+    /**
+     * 退出登录
+     */
+    public void logout() {
+        try {
+            LoginUser loginUser = LoginHelper.getLoginUser();
+            StpUtil.logout();
+            recordLogininfor(loginUser.getUsername(), Constants.LOGOUT, MessageUtils.message("user.logout.success"));
+        } catch (NotLoginException ignored) {
+        }
+    }
 
-    public void logout(String loginName) {
-        asyncService.recordLogininfor(loginName, Constants.LOGOUT, MessageUtils.message("user.logout.success"), ServletUtils.getRequest());
+    /**
+     * 记录登录信息
+     *
+     * @param username 用户名
+     * @param status   状态
+     * @param message  消息内容
+     * @return
+     */
+    private void recordLogininfor(String username, String status, String message) {
+        LogininforEvent logininforDTO = new LogininforEvent();
+        logininforDTO.setUsername(username);
+        logininforDTO.setStatus(status);
+        logininforDTO.setMessage(message);
+        logininforDTO.setRequest(ServletUtils.getRequest());
+        SpringUtils.context().publishEvent(logininforDTO);
     }
 
     /**
      * 校验短信验证码
      */
     private boolean validateSmsCode(String phonenumber, String smsCode) {
-        // todo 此处使用手机号查询redis验证码与参数验证码是否一致 用户自行实现
-        return true;
+        String code = RedisUtils.getCacheObject(CacheConstants.CAPTCHA_CODE_KEY + phonenumber);
+        if (StringUtils.isBlank(code)) {
+            recordLogininfor(phonenumber, Constants.LOGIN_FAIL, MessageUtils.message("user.jcaptcha.expire"));
+            throw new CaptchaExpireException();
+        }
+        return code.equals(smsCode);
     }
 
     /**
@@ -134,15 +169,15 @@ public class SysLoginService {
      * @param uuid     唯一标识
      */
     public void validateCaptcha(String username, String code, String uuid, HttpServletRequest request) {
-        String verifyKey = Constants.CAPTCHA_CODE_KEY + StringUtils.defaultString(uuid, "");
+        String verifyKey = CacheConstants.CAPTCHA_CODE_KEY + StringUtils.defaultString(uuid, "");
         String captcha = RedisUtils.getCacheObject(verifyKey);
         RedisUtils.deleteObject(verifyKey);
         if (captcha == null) {
-            asyncService.recordLogininfor(username, Constants.LOGIN_FAIL, MessageUtils.message("user.jcaptcha.expire"), request);
+            recordLogininfor(username, Constants.LOGIN_FAIL, MessageUtils.message("user.jcaptcha.expire"));
             throw new CaptchaExpireException();
         }
         if (!code.equalsIgnoreCase(captcha)) {
-            asyncService.recordLogininfor(username, Constants.LOGIN_FAIL, MessageUtils.message("user.jcaptcha.error"), request);
+            recordLogininfor(username, Constants.LOGIN_FAIL, MessageUtils.message("user.jcaptcha.error"));
             throw new CaptchaException();
         }
     }
@@ -205,7 +240,7 @@ public class SysLoginService {
         loginUser.setUserType(user.getUserType());
         loginUser.setMenuPermission(permissionService.getMenuPermission(user));
         loginUser.setRolePermission(permissionService.getRolePermission(user));
-        loginUser.setDeptName(user.getDept().getDeptName());
+        loginUser.setDeptName(ObjectUtil.isNull(user.getDept()) ? "" : user.getDept().getDeptName());
         List<RoleDTO> roles = BeanUtil.copyToList(user.getRoles(), RoleDTO.class);
         loginUser.setRoles(roles);
         return loginUser;
@@ -230,31 +265,29 @@ public class SysLoginService {
      */
     private void checkLogin(LoginType loginType, String username, Supplier<Boolean> supplier) {
         HttpServletRequest request = ServletUtils.getRequest();
-        String errorKey = Constants.LOGIN_ERROR + username;
-        Integer errorLimitTime = Constants.LOGIN_ERROR_LIMIT_TIME;
-        Integer setErrorNumber = Constants.LOGIN_ERROR_NUMBER;
+        String errorKey = CacheConstants.PWD_ERR_CNT_KEY + username;
         String loginFail = Constants.LOGIN_FAIL;
 
         // 获取用户登录错误次数(可自定义限制策略 例如: key + username + ip)
         Integer errorNumber = RedisUtils.getCacheObject(errorKey);
         // 锁定时间内登录 则踢出
-        if (ObjectUtil.isNotNull(errorNumber) && errorNumber.equals(setErrorNumber)) {
-            asyncService.recordLogininfor(username, loginFail, MessageUtils.message(loginType.getRetryLimitExceed(), errorLimitTime), request);
-            throw new UserException(loginType.getRetryLimitExceed(), errorLimitTime);
+        if (ObjectUtil.isNotNull(errorNumber) && errorNumber.equals(maxRetryCount)) {
+            recordLogininfor(username, loginFail, MessageUtils.message(loginType.getRetryLimitExceed(), maxRetryCount, lockTime));
+            throw new UserException(loginType.getRetryLimitExceed(), maxRetryCount, lockTime);
         }
 
         if (supplier.get()) {
             // 是否第一次
             errorNumber = ObjectUtil.isNull(errorNumber) ? 1 : errorNumber + 1;
             // 达到规定错误次数 则锁定登录
-            if (errorNumber.equals(setErrorNumber)) {
-                RedisUtils.setCacheObject(errorKey, errorNumber, Duration.ofMinutes(errorLimitTime));
-                asyncService.recordLogininfor(username, loginFail, MessageUtils.message(loginType.getRetryLimitExceed(), errorLimitTime), request);
-                throw new UserException(loginType.getRetryLimitExceed(), errorLimitTime);
+            if (errorNumber.equals(maxRetryCount)) {
+                RedisUtils.setCacheObject(errorKey, errorNumber, Duration.ofMinutes(lockTime));
+                recordLogininfor(username, loginFail, MessageUtils.message(loginType.getRetryLimitExceed(), maxRetryCount, lockTime));
+                throw new UserException(loginType.getRetryLimitExceed(), maxRetryCount, lockTime);
             } else {
                 // 未达到规定错误次数 则递增
                 RedisUtils.setCacheObject(errorKey, errorNumber);
-                asyncService.recordLogininfor(username, loginFail, MessageUtils.message(loginType.getRetryLimitCount(), errorNumber), request);
+                recordLogininfor(username, loginFail, MessageUtils.message(loginType.getRetryLimitCount(), errorNumber));
                 throw new UserException(loginType.getRetryLimitCount(), errorNumber);
             }
         }

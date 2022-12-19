@@ -1,8 +1,8 @@
 package com.xxl.job.admin.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.xxl.job.admin.core.complete.XxlJobCompleter;
 import com.xxl.job.admin.core.exception.XxlJobException;
+import com.xxl.job.admin.core.complete.XxlJobCompleter;
 import com.xxl.job.admin.core.model.XxlJobGroup;
 import com.xxl.job.admin.core.model.XxlJobInfo;
 import com.xxl.job.admin.core.model.XxlJobLog;
@@ -61,7 +61,7 @@ public class JobLogController {
             throw new XxlJobException(I18nUtil.getString("jobgroup_empty"));
         }
 
-        model.addAttribute("JobGroupList" , jobGroupList);
+        model.addAttribute("JobGroupList", jobGroupList);
 
         // 任务
         if (jobId > 0) {
@@ -70,7 +70,7 @@ public class JobLogController {
                 throw new RuntimeException(I18nUtil.getString("jobinfo_field_id") + I18nUtil.getString("system_unvalid"));
             }
 
-            model.addAttribute("jobInfo" , jobInfo);
+            model.addAttribute("jobInfo", jobInfo);
 
             // valid permission
             JobInfoController.validPermission(request, jobInfo.getJobGroup());
@@ -113,9 +113,9 @@ public class JobLogController {
 
         // package result
         Map<String, Object> maps = new HashMap<String, Object>();
-        maps.put("recordsTotal" , page.getTotal());        // 总记录数
-        maps.put("recordsFiltered" , page.getTotal());    // 过滤后的总记录数
-        maps.put("data" , page.getRecords());                    // 分页列表
+        maps.put("recordsTotal", page.getTotal());        // 总记录数
+        maps.put("recordsFiltered", page.getTotal());    // 过滤后的总记录数
+        maps.put("data", page.getRecords());                    // 分页列表
         return maps;
     }
 
@@ -129,11 +129,11 @@ public class JobLogController {
             throw new RuntimeException(I18nUtil.getString("joblog_logid_unvalid"));
         }
 
-        model.addAttribute("triggerCode" , jobLog.getTriggerCode());
-        model.addAttribute("handleCode" , jobLog.getHandleCode());
-        model.addAttribute("executorAddress" , jobLog.getExecutorAddress());
-        model.addAttribute("triggerTime" , jobLog.getTriggerTime().getTime());
-        model.addAttribute("logId" , jobLog.getId());
+        model.addAttribute("triggerCode", jobLog.getTriggerCode());
+        model.addAttribute("handleCode", jobLog.getHandleCode());
+        model.addAttribute("executorAddress", jobLog.getExecutorAddress());
+        model.addAttribute("triggerTime", jobLog.getTriggerTime().getTime());
+        model.addAttribute("logId", jobLog.getId());
         return "joblog/joblog.detail";
     }
 

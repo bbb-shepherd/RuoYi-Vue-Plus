@@ -41,7 +41,7 @@ public class UserController {
 
         // 执行器列表
         List<XxlJobGroup> groupList = xxlJobGroupDao.findAll();
-        model.addAttribute("groupList" , groupList);
+        model.addAttribute("groupList", groupList);
 
         return "user/user.index";
     }
@@ -66,9 +66,9 @@ public class UserController {
 
         // package result
         Map<String, Object> maps = new HashMap<String, Object>();
-        maps.put("recordsTotal" , page.getTotal());        // 总记录数
-        maps.put("recordsFiltered" , page.getTotal());    // 过滤后的总记录数
-        maps.put("data" , list);                      // 分页列表
+        maps.put("recordsTotal", page.getTotal());        // 总记录数
+        maps.put("recordsFiltered", page.getTotal());    // 过滤后的总记录数
+        maps.put("data", list);                    // 分页列表
         return maps;
     }
 

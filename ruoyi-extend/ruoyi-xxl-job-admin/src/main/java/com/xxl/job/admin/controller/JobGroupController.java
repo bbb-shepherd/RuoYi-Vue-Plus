@@ -53,9 +53,9 @@ public class JobGroupController {
 
         // package result
         Map<String, Object> maps = new HashMap<String, Object>();
-        maps.put("recordsTotal" , page.getTotal());        // 总记录数
-        maps.put("recordsFiltered" , page.getTotal());    // 过滤后的总记录数
-        maps.put("data" , page.getRecords());                    // 分页列表
+        maps.put("recordsTotal", page.getTotal());        // 总记录数
+        maps.put("recordsFiltered", page.getTotal());    // 过滤后的总记录数
+        maps.put("data", page.getRecords());                    // 分页列表
         return maps;
     }
 

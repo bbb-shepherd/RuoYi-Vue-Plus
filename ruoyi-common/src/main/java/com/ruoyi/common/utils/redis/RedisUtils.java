@@ -1,6 +1,5 @@
 package com.ruoyi.common.utils.redis;
 
-import cn.hutool.core.collection.IterUtil;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -12,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * redis 工具类
@@ -100,14 +101,13 @@ public class RedisUtils {
      * @since Redis 6.X 以上使用 setAndKeepTTL 兼容 5.X 方案
      */
     public static <T> void setCacheObject(final String key, final T value, final boolean isSaveTtl) {
-        RBucket<Object> bucket = CLIENT.getBucket(key);
+        RBucket<T> bucket = CLIENT.getBucket(key);
         if (isSaveTtl) {
             try {
                 bucket.setAndKeepTTL(value);
             } catch (Exception e) {
                 long timeToLive = bucket.remainTimeToLive();
-                bucket.set(value);
-                bucket.expire(Duration.ofMillis(timeToLive));
+                setCacheObject(key, value, Duration.ofMillis(timeToLive));
             }
         } else {
             bucket.set(value);
@@ -122,9 +122,11 @@ public class RedisUtils {
      * @param duration 时间
      */
     public static <T> void setCacheObject(final String key, final T value, final Duration duration) {
-        RBucket<T> result = CLIENT.getBucket(key);
-        result.set(value);
-        result.expire(duration);
+        RBatch batch = CLIENT.createBatch();
+        RBucketAsync<T> bucket = batch.getBucket(key);
+        bucket.setAsync(value);
+        bucket.expireAsync(duration);
+        batch.execute();
     }
 
     /**
@@ -317,6 +319,17 @@ public class RedisUtils {
     }
 
     /**
+     * 获得缓存Map的key列表
+     *
+     * @param key 缓存的键值
+     * @return key列表
+     */
+    public static <T> Set<String> getCacheMapKeySet(final String key) {
+        RMap<String, T> rMap = CLIENT.getMap(key);
+        return rMap.keySet();
+    }
+
+    /**
      * 往Hash中存入数据
      *
      * @param key   Redis键
@@ -365,14 +378,67 @@ public class RedisUtils {
     }
 
     /**
+     * 设置原子值
+     *
+     * @param key   Redis键
+     * @param value 值
+     */
+    public static void setAtomicValue(String key, long value) {
+        RAtomicLong atomic = CLIENT.getAtomicLong(key);
+        atomic.set(value);
+    }
+
+    /**
+     * 获取原子值
+     *
+     * @param key Redis键
+     * @return 当前值
+     */
+    public static long getAtomicValue(String key) {
+        RAtomicLong atomic = CLIENT.getAtomicLong(key);
+        return atomic.get();
+    }
+
+    /**
+     * 递增原子值
+     *
+     * @param key Redis键
+     * @return 当前值
+     */
+    public static long incrAtomicValue(String key) {
+        RAtomicLong atomic = CLIENT.getAtomicLong(key);
+        return atomic.incrementAndGet();
+    }
+
+    /**
+     * 递减原子值
+     *
+     * @param key Redis键
+     * @return 当前值
+     */
+    public static long decrAtomicValue(String key) {
+        RAtomicLong atomic = CLIENT.getAtomicLong(key);
+        return atomic.decrementAndGet();
+    }
+
+    /**
      * 获得缓存的基本对象列表
      *
      * @param pattern 字符串前缀
      * @return 对象列表
      */
     public static Collection<String> keys(final String pattern) {
-        Iterable<String> iterable = CLIENT.getKeys().getKeysByPattern(pattern);
-        return IterUtil.toList(iterable);
+        Stream<String> stream = CLIENT.getKeys().getKeysStreamByPattern(pattern);
+        return stream.collect(Collectors.toList());
+    }
+
+    /**
+     * 删除缓存的基本对象列表
+     *
+     * @param pattern 字符串前缀
+     */
+    public static void deleteKeys(final String pattern) {
+        CLIENT.getKeys().deleteByPattern(pattern);
     }
 
     /**

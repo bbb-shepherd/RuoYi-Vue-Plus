@@ -11,9 +11,14 @@ import lombok.Data;
 public class OssProperties {
 
     /**
-     * 域名
+     * 访问站点
      */
     private String endpoint;
+
+    /**
+     * 自定义域名
+     */
+    private String domain;
 
     /**
      * 前缀
@@ -44,5 +49,10 @@ public class OssProperties {
      * 是否https（Y=是,N=否）
      */
     private String isHttps;
+
+    /**
+     * 桶权限类型(0private 1public 2custom)
+     */
+    private String accessPolicy;
 
 }
