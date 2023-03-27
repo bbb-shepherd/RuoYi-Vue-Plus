@@ -2,7 +2,7 @@
 spring.boot.admin.client:
   # 增加客户端开关
   enabled: true
-  url: http://localhost:9090/admin
+  url: http://localhost:3001/admin
   instance:
     service-host-type: IP
   username: ruoyi
@@ -13,7 +13,7 @@ xxl.job:
   # 执行器开关
   enabled: true
   # 调度中心地址：如调度中心集群部署存在多个地址则用逗号分隔。
-  admin-addresses: http://localhost:9100/xxl-job-admin
+  admin-addresses: http://localhost:3002/xxl-job-admin
   # 执行器通讯TOKEN：非空时启用
   access-token: xxl-job
   executor:
@@ -108,7 +108,7 @@ spring:
     # 数据库索引
     database: 0
     # 密码(如没有密码请注释掉)
-    # password:
+    password: Wbjxxmy@88
     # 连接超时时间
     timeout: 10s
     # 是否开启ssl
